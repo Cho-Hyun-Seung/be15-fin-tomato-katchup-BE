@@ -43,13 +43,17 @@
 
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#2-5">2-5. 아키텍처 구조도</a>
 
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#2-6">2-6. 프로그램 사양서(REST API 명세서)</a>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#2-6">2-6. REST API 명세서</a>
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#2-7">2-7. 기능별 프로세스 흐름도</a>
 
 <a href="#3">3. Back & Front 테스트 결과 </a>
 
-<a href="#4">4. 팀원 회고 </a>
+<a href="#4">4. 트러블 슈팅 </a>
 
-<a href="#5">5. 추후 개선 사항 </a>
+<a href="#4">5. 팀원 회고 </a>
+
+<a href="#5">6. 추후 개선 사항 </a>
 <br>
 
 ---
@@ -246,7 +250,15 @@
 ![Image](https://github.com/user-attachments/assets/7b189246-8c8d-4816-b684-baf17627a9f3)
 
 ---
-## <p id="2-6">2-6. 기능별 프로세스 흐름도</p>
+## <p id="2-6">2-6. REST API 명세서</p>
+<details>
+<summary>API 명세서 보기</summary>
+<br>
+<img alt="api 명세서" src="https://github.com/user-attachments/assets/55805390-7bee-47ea-ac49-cb4b20001051" />
+
+</details>
+---
+## <p id="2-7">2-7. 기능별 프로세스 흐름도</p>
 <img width="1704" height="686" alt="Tomato Katchup - 발표본" src="https://github.com/user-attachments/assets/bf8e32a4-c632-4112-8fcd-feb5aec2898a" />
 
 ---
@@ -434,7 +446,93 @@
 
 ---
 
-## <p id="4"> 4. 🤝 팀원 회고</p>
+## <p id="4"> 4. 트러블 슈팅</p>
+
+### ✅ [TOMATO] JWT 에러 상태 값 수정하기
+
+#### 1️⃣ 문제 상황
+
+Axios 인터셉터를 활용하여 JWT 만료 시 토큰을 재발급하는 로직을 구성하려고 했으나,  
+서버로부터 오는 에러 응답의 상태 코드가 항상 `500` 또는 `400`으로 고정되어 있었다.  
+JWT 토큰 만료와 같은 인증 관련 에러는 `401 Unauthorized`로 받고 싶었다.
+
+#### 2️⃣ 문제 해결 시도
+
+#### 🔸 1. `@ExceptionHandler`로 처리 시도 ❌
+
+- `BusinessException`을 핸들링하는 `GlobalExceptionHandler`에 로깅 추가
+
+```java
+@RestControllerAdvice
+@Slf4j
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(BusinessException.class)
+    public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException e) {
+        ErrorCode errorCode = e.getErrorCode();
+        log.error("에러코드 : {}", errorCode.getHttpStatus());
+        ApiResponse<Void> response = ApiResponse.failure(errorCode.getCode(), errorCode.getMessage());
+        return new ResponseEntity<>(response, errorCode.getHttpStatus());
+    }
+}
+```
+
+🔸 2. JwtErrorResponse를 통해 명시적으로 상태 코드 지정 ⭕
+
+- 기존에는 검증 실패 시 단순히 예외를 던졌기 때문에 Spring Security의 기본 예외 처리기가 500을 반환
+- JwtErrorResponse를 활용하여 직접 상태 코드를 설정하도록 변경.
+
+🔧 개선 전 코드
+
+```java
+if (token != null && jwtTokenProvider.validateToken(token)) {
+    // 검증 실패 시 예외 발생
+}
+```
+
+🔧 개선 후 코드
+
+```java
+public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private final JwtTokenProvider jwtTokenProvider;
+    private final JwtErrorResponse jwtErrorResponse;
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+        throws ServletException, IOException {
+        try {
+            String upgradeHeader = request.getHeader("Upgrade");
+            if ("websocket".equalsIgnoreCase(upgradeHeader)) {
+                filterChain.doFilter(request, response);
+                return;
+            }
+
+            String token = parseToken(request);
+            if (token != null && jwtTokenProvider.validateToken(token)) {
+                // 인증 성공 로직
+                ...
+            }
+
+            filterChain.doFilter(request, response);
+        } catch (BusinessException e) {
+            jwtErrorResponse.setErrorResponse(response, e.getErrorCode()); // ✅ 에러 상태 코드 직접 지정
+        } catch (Exception e) {
+            jwtErrorResponse.setErrorResponse(response, GlobalErrorCode.INTERNAL_SERVER_ERROR);
+        }
+    }
+}
+```
+
+#### 3️⃣ 결과
+
+- 백엔드에서 JWT 토큰 오류 시 401 Unauthorized 상태 코드를 정상적으로 응답
+- 프론트엔드는 해당 응답을 감지하여 토큰을 재발급 받고 기존 요청을 자동 재시도
+- 최종적으로 JWT 재발급 로직이 안정적으로 동작함을 확인
+
+---
+
+## <p id="5"> 5. 🤝 팀원 회고</p>
 
 | 이름  | 회고 |
 |:---:|-|
@@ -447,7 +545,7 @@
 
 ---
 
-## <p id="5"> 5. 🛠️ 추후 개선 사항</p>
+## <p id="6"> 6. 🛠️ 추후 개선 사항</p>
 ### 1) 모니터링 시스템 개선    
 - 기존: 장애 발생 시 **즉각적인 대응이 어려움**
 - 개선: **AWS CloudWatch 기반 정적 모니터링 시스템 구축**
