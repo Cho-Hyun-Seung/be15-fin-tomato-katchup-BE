@@ -257,7 +257,9 @@
 <img alt="api 명세서" src="https://github.com/user-attachments/assets/55805390-7bee-47ea-ac49-cb4b20001051" />
 
 </details>
+
 ---
+
 ## <p id="2-7">2-7. 기능별 프로세스 흐름도</p>
 <img width="1704" height="686" alt="Tomato Katchup - 발표본" src="https://github.com/user-attachments/assets/bf8e32a4-c632-4112-8fcd-feb5aec2898a" />
 
